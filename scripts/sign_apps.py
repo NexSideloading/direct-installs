@@ -28,45 +28,25 @@ def load_config() -> Dict:
     return {}
 
 # Apps that require signing asset injection
-APPS_REQUIRING_INJECTION = ["Ksign", "Feather", "NexStore", "CocoSign"]
+APPS_REQUIRING_INJECTION = ["Ksign", "Feather"]
 
 # App bundle identifiers and metadata
 APP_METADATA = {
     "Ksign": {
-        "bundle_id": "com.ksign.ksign",
+        "bundle_id": "nya.asami.ksign",
         "title": "Ksign"
     },
     "Feather": {
-        "bundle_id": "com.feather.app",
+        "bundle_id": "thewonderofyou.Feather",
         "title": "Feather"
     },
-    "NexStore": {
-        "bundle_id": "com.novadev.nexstore",
-        "title": "NexStore"
-    },
     "ESign": {
-        "bundle_id": "com.esign.app",
+        "bundle_id": "p3.xyz.yyyue.esign",
         "title": "ESign"
     },
-    "ScarletAlpha": {
-        "bundle_id": "com.scarlet.alpha",
-        "title": "Scarlet Alpha"
-    },
-    "CocoSign": {
-        "bundle_id": "com.cocosign.app",
-        "title": "CocoSign"
-    },
-    "SideInstaller": {
-        "bundle_id": "com.sideinstaller.app",
-        "title": "SideInstaller"
-    },
-    "iRAM-Plus": {
-        "bundle_id": "com.iram.plus",
-        "title": "iRAM Plus"
-    },
-    "FlareStore": {
-        "bundle_id": "com.flarestore.ios",
-        "title": "FlareStore"
+    "Scarlet": {
+        "bundle_id": "com.DebianArch.ScarletPersonalXYZZZ",
+        "title": "Scarlet"
     }
 }
 
