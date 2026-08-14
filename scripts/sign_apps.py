@@ -187,6 +187,7 @@ def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Pa
         return False
     
     try:
+        # Try with basic parameters first
         cmd = [
             str(zsign_path),
             "-k", str(cert_files['p12']),
@@ -199,7 +200,39 @@ def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Pa
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         
         if result.returncode != 0:
-            print(f"  zsign failed: {result.stderr}")
+            print(f"  zsign failed (exit code {result.returncode})")
+            if result.stderr:
+                print(f"  stderr: {result.stderr[:500]}")
+            if result.stdout:
+                print(f"  stdout: {result.stdout[:500]}")
+            
+            # Try with additional parameters that might help
+            print("  Retrying with additional parameters...")
+            cmd = [
+                str(zsign_path),
+                "-k", str(cert_files['p12']),
+                "-m", str(cert_files['mobileprovision']),
+                "-p", password,
+                "-o", str(output_path),
+                "--no-compress",  # Try without compression
+                str(ipa_path)
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode != 0:
+                print(f"  zsign retry also failed (exit code {result.returncode})")
+                return False
+        
+        # Verify the output file was created
+        if not output_path.exists():
+            print("  zsign completed but output file not created")
+            return False
+        
+        # Verify the output file is valid
+        if output_path.stat().st_size < 1000:  # Suspiciously small
+            print("  Output file is too small, may be corrupted")
+            output_path.unlink()
             return False
         
         return True
