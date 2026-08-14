@@ -14,15 +14,15 @@ Automated system for downloading iOS apps, fetching certificates from NexCerts A
 
 ## Supported Apps
 
-- Ksign
-- Feather
-- NexStore
-- ESign
-- Scarlet Alpha
-- CocoSign
-- SideInstaller
-- iRAM Plus
-- FlareStore
+- [x] Ksign
+- [x] Feather
+- [ ] NexStore
+- [x] ESign
+- [x] Scarlet
+- [ ] CocoSign
+- [ ] SideInstaller
+- [ ] iRAM Plus
+- [ ] FlareStore
 
 ## Project Structure
 

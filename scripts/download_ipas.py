@@ -11,10 +11,8 @@ from typing import Dict, Optional
 IPA_SOURCES = {
     "Ksign": "https://github.com/Nyasami/Ksign/releases/latest/download/Ksign.ipa",
     "Feather": "https://github.com/claration/Feather/releases/latest/download/Feather.ipa",
-    "NexStore": "https://github.com/NovaDev404/NexStore/releases/latest/download/NexStore.ipa",
     "ESign": "https://github.com/Neoncat-OG/TrollStore-IPAs/releases/download/ESign/ESign-5.0.2.ipa",
     "Scarlet": "https://github.com/NovaDev404/apps/raw/refs/heads/main/ScarletAlpha.ipa",
-    "SideInstaller": "https://github.com/FrizzleM/SideInstaller/releases/latest/download/SideInstaller.ipa",
 }
 
 # State file to track downloaded IPAs
