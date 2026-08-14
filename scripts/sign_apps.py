@@ -7,6 +7,7 @@ import shutil
 import zipfile
 import tempfile
 import requests
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List
 
@@ -126,6 +127,19 @@ def get_password(password_file: Path) -> str:
     except Exception as e:
         print(f"  Failed to read password file: {e}")
         return ""
+
+def is_certificate_expired(valid_to: str) -> bool:
+    """Check if a certificate is expired based on valid_to date."""
+    if not valid_to:
+        return True  # Treat missing date as expired
+    
+    try:
+        # Parse date format like "Jun 23 08:49:28 2027 GMT"
+        cert_date = datetime.strptime(valid_to, "%b %d %H:%M:%S %Y GMT")
+        return datetime.utcnow() > cert_date
+    except ValueError:
+        print(f"  Failed to parse certificate expiry date: {valid_to}")
+        return True  # Treat unparseable date as expired
 
 def download_zsign(output_dir: Path) -> Optional[Path]:
     """Download zsign binary."""
@@ -433,6 +447,12 @@ def main():
             folder_name = cert_info['folder_name']
             is_missing_p12 = cert_info.get('is_missing_p12', False)
             is_revoked = "revoked" in cert_info['status'].lower() or "❌" in cert_info['status']
+            valid_to = cert_info.get('valid_to', '')
+            
+            # Skip expired certificates
+            if is_certificate_expired(valid_to):
+                print(f"  Skipping {cert_name} (expired certificate, valid until: {valid_to})")
+                continue
             
             # Skip missing P12 certificates for signing (they can't sign)
             if is_missing_p12:
