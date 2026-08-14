@@ -13,11 +13,8 @@ IPA_SOURCES = {
     "Feather": "https://github.com/claration/Feather/releases/latest/download/Feather.ipa",
     "NexStore": "https://github.com/NovaDev404/NexStore/releases/latest/download/NexStore.ipa",
     "ESign": "https://github.com/Neoncat-OG/TrollStore-IPAs/releases/download/ESign/ESign-5.0.2.ipa",
-    "ScarletAlpha": "https://github.com/NovaDev404/apps/raw/refs/heads/main/ScarletAlpha.ipa",
-    "CocoSign": "https://api.cococloud-signing.vip/v1/app-version/16/download",
+    "Scarlet": "https://github.com/NovaDev404/apps/raw/refs/heads/main/ScarletAlpha.ipa",
     "SideInstaller": "https://github.com/FrizzleM/SideInstaller/releases/latest/download/SideInstaller.ipa",
-    "iRAM-Plus": "https://github.com/NovaDev404/iRAM-Plus/releases/latest/download/iRAM-Plus.ipa",
-    "FlareStore": "https://github.com/NovaDev404/apps/raw/refs/heads/main/FlareStore-iOS-v1.2.0.ipa"
 }
 
 # State file to track downloaded IPAs
