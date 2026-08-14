@@ -1,0 +1,51 @@
+name: Sign Apps with Certificates
+
+on:
+  schedule:
+    # Run twice daily at 00:00 and 12:00 UTC
+    - cron: '0 0,12 * * *'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  sign-apps:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+      
+      - name: Run signing workflow
+        run: |
+          python scripts/run_all.py
+      
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Add state files and signed apps
+          git add *_state.json signed_apps/
+          
+          # Add certificates directory
+          git add certificates/
+          
+          # Add IPAs directory
+          git add ipas/
+          
+          # Check if there are changes to commit
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update signed apps and certificates $(date '+%Y-%m-%d %H:%M:%S')"
+            git push
+          fi
