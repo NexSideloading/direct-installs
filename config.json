@@ -1,6 +1,6 @@
 {
   "manifest_url_template": "https://raw.githubusercontent.com/{github_repo}/{github_ref}/signed_apps/{app_name}/{cert_name}/signed.ipa",
-  "github_repo": "NovaDev404/direct-installs",
+  "github_repo": "ios-direct-installs/sideloading-direct-installs",
   "github_ref": "main",
   "icon_url_template": "https://raw.githubusercontent.com/{github_repo}/{github_ref}/icons/{app_name}.png",
   "additional_apps": {},

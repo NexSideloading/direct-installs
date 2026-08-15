@@ -150,58 +150,35 @@ def download_zsign(output_dir: Path) -> Optional[Path]:
         print(f"  Failed to download zsign: {e}")
         return None
 
-def extract_metadata_with_zsign(ipa_path: Path, zsign_path: Path) -> Optional[Dict]:
-    """Extract metadata from IPA using zsign -x flag."""
+def extract_metadata_from_signing_output(metadata_dir: Path, ipa_path: Path) -> Optional[Dict]:
+    """Extract metadata from zsign signing output."""
     try:
-        # Create temp directory for extraction
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            
-            # Run zsign with -x flag to extract metadata
-            cmd = [
-                str(zsign_path),
-                "-x", str(temp_path),
-                str(ipa_path)
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            
-            if result.returncode != 0:
-                print(f"  zsign metadata extraction failed (exit code {result.returncode})")
-                return None
-            
-            # Read metadata.json
-            metadata_file = temp_path / "metadata.json"
-            if not metadata_file.exists():
-                print("  metadata.json not found after extraction")
-                return None
-            
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-            
-            # Find the icon file (any .png file in the extraction folder)
-            icon_files = list(temp_path.glob("*.png"))
-            if icon_files:
-                # Copy the icon to a permanent location
-                icon_dir = REPO_ROOT / "icons"
-                icon_dir.mkdir(parents=True, exist_ok=True)
-                icon_name = f"{ipa_path.stem}_icon.png"
-                icon_path = icon_dir / icon_name
-                shutil.copy2(icon_files[0], icon_path)
-                metadata['icon_path'] = str(icon_path)
-            else:
-                metadata['icon_path'] = None
-            
-            return metadata
-    except subprocess.TimeoutExpired:
-        print("  zsign metadata extraction timed out")
-        return None
+        # Read metadata.json
+        metadata_file = metadata_dir / "metadata.json"
+        if not metadata_file.exists():
+            print("  metadata.json not found after signing")
+            return None
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Find the icon file (any .png file in the metadata folder)
+        icon_files = list(metadata_dir.glob("*.png"))
+        if icon_files:
+            # Use the icon path from the temp directory
+            metadata['icon_path'] = str(icon_files[0])
+        else:
+            metadata['icon_path'] = None
+        
+        return metadata
     except Exception as e:
-        print(f"  zsign metadata extraction error: {e}")
+        print(f"  Failed to extract metadata from signing output: {e}")
         return None
 
 def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Path) -> tuple[bool, Optional[Dict]]:
     """Sign an IPA using zsign and extract metadata."""
+    metadata = None
+    
     if not cert_files['p12'] or not cert_files['mobileprovision'] or not cert_files['password']:
         print("  Missing certificate files for signing")
         return False, None
@@ -211,69 +188,75 @@ def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Pa
         print("  Failed to get password")
         return False, None
     
-    # Extract metadata before signing
-    metadata = extract_metadata_with_zsign(ipa_path, zsign_path)
-    if metadata:
-        print(f"  Extracted metadata: {metadata.get('AppBundleIdentifier', 'unknown')} v{metadata.get('AppVersion', 'unknown')}")
-    else:
-        print("  Failed to extract metadata, using fallback")
-    
-    try:
-        # Try with basic parameters first
-        cmd = [
-            str(zsign_path),
-            "-k", str(cert_files['p12']),
-            "-m", str(cert_files['mobileprovision']),
-            "-p", password,
-            "-o", str(output_path),
-            str(ipa_path)
-        ]
+    # Create metadata directory for this signing operation
+    with tempfile.TemporaryDirectory() as temp_dir:
+        metadata_dir = Path(temp_dir)
         
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        
-        if result.returncode != 0:
-            print(f"  zsign failed (exit code {result.returncode})")
-            if result.stderr:
-                print(f"  stderr: {result.stderr[:500]}")
-            if result.stdout:
-                print(f"  stdout: {result.stdout[:500]}")
-            
-            # Try with additional parameters that might help
-            print("  Retrying with additional parameters...")
+        try:
+            # Try with basic parameters first, including metadata extraction
             cmd = [
                 str(zsign_path),
                 "-k", str(cert_files['p12']),
                 "-m", str(cert_files['mobileprovision']),
                 "-p", password,
                 "-o", str(output_path),
-                "--no-compress",  # Try without compression
+                "-x", str(metadata_dir),
                 str(ipa_path)
             ]
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode != 0:
-                print(f"  zsign retry also failed (exit code {result.returncode})")
+                print(f"  zsign failed (exit code {result.returncode})")
+                if result.stderr:
+                    print(f"  stderr: {result.stderr[:500]}")
+                if result.stdout:
+                    print(f"  stdout: {result.stdout[:500]}")
+                
+                # Try with additional parameters that might help
+                print("  Retrying with additional parameters...")
+                cmd = [
+                    str(zsign_path),
+                    "-k", str(cert_files['p12']),
+                    "-m", str(cert_files['mobileprovision']),
+                    "-p", password,
+                    "-o", str(output_path),
+                    "-x", str(metadata_dir),
+                    "--no-compress",
+                    str(ipa_path)
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    print(f"  zsign retry also failed (exit code {result.returncode})")
+                    return False, metadata
+            
+            # Verify the output file was created
+            if not output_path.exists():
+                print("  zsign completed but output file not created")
                 return False, metadata
-        
-        # Verify the output file was created
-        if not output_path.exists():
-            print("  zsign completed but output file not created")
+            
+            # Verify the output file is valid
+            if output_path.stat().st_size < 1000:  # Suspiciously small
+                print("  Output file is too small, may be corrupted")
+                output_path.unlink()
+                return False, metadata
+            
+            # Extract metadata from signing output
+            metadata = extract_metadata_from_signing_output(metadata_dir, ipa_path)
+            if metadata:
+                print(f"  Extracted metadata: {metadata.get('AppBundleIdentifier', 'unknown')} v{metadata.get('AppVersion', 'unknown')}")
+            else:
+                print("  Failed to extract metadata from signing output")
+            
+            return True, metadata
+        except subprocess.TimeoutExpired:
+            print("  zsign timed out")
             return False, metadata
-        
-        # Verify the output file is valid
-        if output_path.stat().st_size < 1000:  # Suspiciously small
-            print("  Output file is too small, may be corrupted")
-            output_path.unlink()
+        except Exception as e:
+            print(f"  zsign error: {e}")
             return False, metadata
-        
-        return True, metadata
-    except subprocess.TimeoutExpired:
-        print("  zsign timed out")
-        return False, metadata
-    except Exception as e:
-        print(f"  zsign error: {e}")
-        return False, metadata
 
 def inject_signing_assets(ipa_path: Path, cert_files: Dict, cert_name: str) -> bool:
     """Inject signing assets into IPA for apps that require it."""
