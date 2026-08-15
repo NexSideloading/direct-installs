@@ -12,7 +12,7 @@ IPA_SOURCES = {
     "Ksign": "https://github.com/Nyasami/Ksign/releases/latest/download/Ksign.ipa",
     "Feather": "https://github.com/claration/Feather/releases/latest/download/Feather.ipa",
     "ESign": "https://github.com/Neoncat-OG/TrollStore-IPAs/releases/download/ESign/ESign-5.0.2.ipa",
-    "Scarlet": "https://github.com/NovaDev404/apps/raw/refs/heads/main/ScarletAlpha.ipa",
+    "Scarlet": "https://github.com/NovaDev404/ipa-apps/raw/refs/heads/main/ScarletAlpha.ipa",
 }
 
 # State file to track downloaded IPAs
