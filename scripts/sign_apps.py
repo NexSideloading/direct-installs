@@ -10,6 +10,7 @@ import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List
+from urllib.parse import quote
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent
@@ -29,26 +30,6 @@ def load_config() -> Dict:
 
 # Apps that require signing asset injection
 APPS_REQUIRING_INJECTION = ["Ksign", "Feather"]
-
-# App bundle identifiers and metadata
-APP_METADATA = {
-    "Ksign": {
-        "bundle_id": "nya.asami.ksign",
-        "title": "Ksign"
-    },
-    "Feather": {
-        "bundle_id": "thewonderofyou.Feather",
-        "title": "Feather"
-    },
-    "ESign": {
-        "bundle_id": "p3.xyz.yyyue.esign",
-        "title": "ESign"
-    },
-    "Scarlet": {
-        "bundle_id": "com.DebianArch.ScarletPersonalXYZZZ",
-        "title": "Scarlet"
-    }
-}
 
 def load_state() -> Dict:
     """Load the current signing state."""
@@ -169,16 +150,73 @@ def download_zsign(output_dir: Path) -> Optional[Path]:
         print(f"  Failed to download zsign: {e}")
         return None
 
-def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Path) -> bool:
-    """Sign an IPA using zsign."""
+def extract_metadata_with_zsign(ipa_path: Path, zsign_path: Path) -> Optional[Dict]:
+    """Extract metadata from IPA using zsign -x flag."""
+    try:
+        # Create temp directory for extraction
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Run zsign with -x flag to extract metadata
+            cmd = [
+                str(zsign_path),
+                "-x", str(temp_path),
+                str(ipa_path)
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode != 0:
+                print(f"  zsign metadata extraction failed (exit code {result.returncode})")
+                return None
+            
+            # Read metadata.json
+            metadata_file = temp_path / "metadata.json"
+            if not metadata_file.exists():
+                print("  metadata.json not found after extraction")
+                return None
+            
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+            
+            # Find the icon file (any .png file in the extraction folder)
+            icon_files = list(temp_path.glob("*.png"))
+            if icon_files:
+                # Copy the icon to a permanent location
+                icon_dir = REPO_ROOT / "icons"
+                icon_dir.mkdir(parents=True, exist_ok=True)
+                icon_name = f"{ipa_path.stem}_icon.png"
+                icon_path = icon_dir / icon_name
+                shutil.copy2(icon_files[0], icon_path)
+                metadata['icon_path'] = str(icon_path)
+            else:
+                metadata['icon_path'] = None
+            
+            return metadata
+    except subprocess.TimeoutExpired:
+        print("  zsign metadata extraction timed out")
+        return None
+    except Exception as e:
+        print(f"  zsign metadata extraction error: {e}")
+        return None
+
+def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Path) -> tuple[bool, Optional[Dict]]:
+    """Sign an IPA using zsign and extract metadata."""
     if not cert_files['p12'] or not cert_files['mobileprovision'] or not cert_files['password']:
         print("  Missing certificate files for signing")
-        return False
+        return False, None
     
     password = get_password(cert_files['password'])
     if not password:
         print("  Failed to get password")
-        return False
+        return False, None
+    
+    # Extract metadata before signing
+    metadata = extract_metadata_with_zsign(ipa_path, zsign_path)
+    if metadata:
+        print(f"  Extracted metadata: {metadata.get('AppBundleIdentifier', 'unknown')} v{metadata.get('AppVersion', 'unknown')}")
+    else:
+        print("  Failed to extract metadata, using fallback")
     
     try:
         # Try with basic parameters first
@@ -216,26 +254,26 @@ def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Pa
             
             if result.returncode != 0:
                 print(f"  zsign retry also failed (exit code {result.returncode})")
-                return False
+                return False, metadata
         
         # Verify the output file was created
         if not output_path.exists():
             print("  zsign completed but output file not created")
-            return False
+            return False, metadata
         
         # Verify the output file is valid
         if output_path.stat().st_size < 1000:  # Suspiciously small
             print("  Output file is too small, may be corrupted")
             output_path.unlink()
-            return False
+            return False, metadata
         
-        return True
+        return True, metadata
     except subprocess.TimeoutExpired:
         print("  zsign timed out")
-        return False
+        return False, metadata
     except Exception as e:
         print(f"  zsign error: {e}")
-        return False
+        return False, metadata
 
 def inject_signing_assets(ipa_path: Path, cert_files: Dict, cert_name: str) -> bool:
     """Inject signing assets into IPA for apps that require it."""
@@ -284,10 +322,20 @@ def inject_signing_assets(ipa_path: Path, cert_files: Dict, cert_name: str) -> b
         print(f"  Failed to inject signing assets: {e}")
         return False
 
-def generate_manifest(ipa_url: str, app_name: str, version: str, bundle_id: str, title: str, output_path: Path) -> bool:
+def generate_manifest(ipa_url: str, app_name: str, version: str, bundle_id: str, title: str, output_path: Path, icon_path: Optional[str] = None) -> bool:
     """Generate install manifest plist."""
-    # Generic icon URL (you may want to customize this)
-    icon_url = "https://via.placeholder.com/512"
+    # Use extracted icon if available, otherwise use generic placeholder
+    if icon_path and Path(icon_path).exists():
+        # For local icons, we'll use a relative path or upload to a hosting service
+        # For now, use the icon filename in the URL template
+        icon_filename = Path(icon_path).name
+        icon_url = f"https://raw.githubusercontent.com/{{github_repo}}/{{github_ref}}/icons/{icon_filename}"
+        icon_url = icon_url.format(
+            github_repo=os.environ.get('GITHUB_REPOSITORY', 'your-username/your-repo'),
+            github_ref=os.environ.get('GITHUB_REF_NAME', 'main')
+        )
+    else:
+        icon_url = "https://via.placeholder.com/512"
     
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -361,8 +409,14 @@ def extract_ipa_version(ipa_path: Path) -> str:
     
     return "1.0"
 
-def main():
-    """Main function to sign apps with certificates."""
+def main(force_apps=None, force_certs=None, force_all=False):
+    """Main function to sign apps with certificates.
+    
+    Args:
+        force_apps: List of app names to force re-sign (e.g., ["Ksign", "Feather"])
+        force_certs: List of certificate IDs to force re-sign with (e.g., ["123", "456"])
+        force_all: Force re-sign all apps with all certificates
+    """
     # Create output directory
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -377,6 +431,13 @@ def main():
     
     print("Signing apps with certificates...")
     print("=" * 50)
+    
+    if force_all:
+        print("Force re-signing all apps with all certificates")
+    elif force_apps:
+        print(f"Force re-signing apps: {force_apps}")
+    elif force_certs:
+        print(f"Force re-signing with certificates: {force_certs}")
     
     # Download zsign
     zsign_path = download_zsign(SCRIPT_DIR)
@@ -404,12 +465,6 @@ def main():
     
     for ipa_path in ipa_files:
         app_name = ipa_path.stem
-        
-        if app_name not in APP_METADATA:
-            print(f"Skipping {app_name} (no metadata)")
-            continue
-        
-        app_meta = APP_METADATA[app_name]
         print(f"\nProcessing app: {app_name}")
         
         # Extract IPA version
@@ -462,17 +517,39 @@ def main():
             state_key = f"{cert_id}"
             current_state = signing_state[app_name].get(state_key, {})
             
-            if current_state.get('ipa_hash') == ipa_version and current_state.get('cert_version') == cert_info.get('valid_to'):
-                if signed_ipa_path.exists() and manifest_path.exists():
-                    print(f"  ✓ Already signed with {cert_name}")
-                    continue
+            # Determine if we need to re-sign
+            needs_signing = False
+            
+            if force_all:
+                needs_signing = True
+            elif force_apps and app_name in force_apps:
+                needs_signing = True
+            elif force_certs and cert_id_str in force_certs:
+                needs_signing = True
+            elif not (current_state.get('ipa_hash') == ipa_version and current_state.get('cert_version') == cert_info.get('valid_to')):
+                needs_signing = True
+            elif not (signed_ipa_path.exists() and manifest_path.exists()):
+                needs_signing = True
+            
+            if not needs_signing:
+                print(f"  ✓ Already signed with {cert_name}")
+                continue
             
             print(f"  Signing with {cert_name}...")
             
-            # Sign the IPA
-            if not sign_ipa(ipa_path, cert_files, signed_ipa_path, zsign_path):
+            # Sign the IPA and get metadata
+            sign_success, metadata = sign_ipa(ipa_path, cert_files, signed_ipa_path, zsign_path)
+            if not sign_success:
                 print(f"  ✗ Failed to sign with {cert_name}")
                 continue
+            
+            # Use extracted metadata or fallback to app_name
+            bundle_id = metadata.get('AppBundleIdentifier', app_name) if metadata else app_name
+            title = metadata.get('AppName', app_name) if metadata else app_name
+            version = metadata.get('AppVersion', ipa_version) if metadata else ipa_version
+            icon_path = metadata.get('icon_path') if metadata else None
+            
+            print(f"  Using metadata - Bundle ID: {bundle_id}, Title: {title}, Version: {version}")
             
             # Inject signing assets for specific apps
             if app_name in APPS_REQUIRING_INJECTION:
@@ -489,11 +566,11 @@ def main():
             ipa_url = manifest_template.format(
                 github_repo=github_repo,
                 github_ref=github_ref,
-                app_name=app_name,
-                cert_name=cert_name
+                app_name=quote(app_name),
+                cert_name=quote(cert_name)
             )
             
-            if not generate_manifest(ipa_url, app_name, ipa_version, app_meta['bundle_id'], app_meta['title'], manifest_path):
+            if not generate_manifest(ipa_url, app_name, version, bundle_id, title, manifest_path, icon_path):
                 print(f"  ✗ Failed to generate manifest")
                 continue
             

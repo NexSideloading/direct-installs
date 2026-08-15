@@ -109,36 +109,57 @@ def main():
     # Load current state
     state = load_state()
     
-    print("Downloading IPA files...")
+    print("Checking IPA files for updates...")
     print("=" * 50)
+    
+    changed_ipas = []
     
     for name, url in IPA_SOURCES.items():
         output_path = ipa_dir / f"{name}.ipa"
         
-        # Download the IPA
-        result_path = download_ipa(name, url, ipa_dir)
-        
-        if result_path:
-            # Calculate hash of downloaded file
-            file_hash = get_file_hash(result_path)
-            state[name] = {
-                'hash': file_hash,
-                'last_updated': str(Path(result_path).stat().st_mtime)
-            }
-        else:
-            # If download failed but file exists, keep existing state
-            if output_path.exists():
-                print(f"  ℹ️  {name} keeping existing file due to download failure")
+        # Check if file exists and compare hash
+        needs_download = True
+        if output_path.exists():
+            existing_hash = get_file_hash(output_path)
+            stored_hash = state.get(name, {}).get('hash')
+            if existing_hash == stored_hash:
+                print(f"  ✓ {name} is up to date")
+                needs_download = False
             else:
-                # Remove from state if file doesn't exist and download failed
-                if name in state:
-                    del state[name]
+                print(f"  🔄 {name} has changed, downloading new version")
+                changed_ipas.append(name)
+        else:
+            print(f"  📥 {name} not found locally, downloading")
+            changed_ipas.append(name)
+        
+        if needs_download:
+            # Download the IPA
+            result_path = download_ipa(name, url, ipa_dir)
+            
+            if result_path:
+                # Calculate hash of downloaded file
+                file_hash = get_file_hash(result_path)
+                state[name] = {
+                    'hash': file_hash,
+                    'last_updated': str(Path(result_path).stat().st_mtime)
+                }
+            else:
+                # If download failed but file exists, keep existing state
+                if output_path.exists():
+                    print(f"  ℹ️  {name} keeping existing file due to download failure")
+                else:
+                    # Remove from state if file doesn't exist and download failed
+                    if name in state:
+                        del state[name]
     
     # Save updated state
     save_state(state)
     
     print("=" * 50)
-    print("IPA download process completed")
+    print(f"IPA check completed. Changed IPAs: {len(changed_ipas)}")
+    
+    # Return changed IPAs for use by other scripts
+    return changed_ipas
 
 if __name__ == "__main__":
     main()

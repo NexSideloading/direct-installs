@@ -148,12 +148,13 @@ def main():
     
     if not all_certs:
         print("No certificates found or failed to fetch")
-        return
+        return [], []
     
     print(f"Found {len(all_certs)} certificates")
     
     # Process each certificate
     current_cert_ids = set()
+    added_certs = []
     
     for cert in all_certs:
         cert_id = cert['id']
@@ -162,6 +163,11 @@ def main():
         folder_name = cert.get('folder_name', f"cert_{cert_id}")
         
         current_cert_ids.add(cert_id)
+        
+        # Check if this is a new certificate
+        if str(cert_id) not in state:
+            added_certs.append(str(cert_id))
+            print(f"  ➕ New certificate: {cert_name} (ID: {cert_id})")
         
         # Create certificate directory
         cert_dir = CERT_DIR / folder_name
@@ -239,6 +245,10 @@ def main():
     
     print("=" * 50)
     print(f"Certificate sync completed. Active certificates: {len(state)}")
+    print(f"Added certificates: {len(added_certs)}, Removed certificates: {len(removed_certs)}")
+    
+    # Return added and removed certificate IDs for use by other scripts
+    return added_certs, removed_certs
 
 if __name__ == "__main__":
     main()
