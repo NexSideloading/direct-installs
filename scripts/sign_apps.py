@@ -165,8 +165,13 @@ def extract_metadata_from_signing_output(metadata_dir: Path, ipa_path: Path) -> 
         # Find the icon file (any .png file in the metadata folder)
         icon_files = list(metadata_dir.glob("*.png"))
         if icon_files:
-            # Use the icon path from the temp directory
-            metadata['icon_path'] = str(icon_files[0])
+            # Copy the icon to a permanent location
+            icon_dir = REPO_ROOT / "icons"
+            icon_dir.mkdir(parents=True, exist_ok=True)
+            icon_name = f"{ipa_path.stem}_icon.png"
+            icon_path = icon_dir / icon_name
+            shutil.copy2(icon_files[0], icon_path)
+            metadata['icon_path'] = str(icon_path)
         else:
             metadata['icon_path'] = None
         
@@ -307,18 +312,21 @@ def inject_signing_assets(ipa_path: Path, cert_files: Dict, cert_name: str) -> b
 
 def generate_manifest(ipa_url: str, app_name: str, version: str, bundle_id: str, title: str, output_path: Path, icon_path: Optional[str] = None) -> bool:
     """Generate install manifest plist."""
+    config = load_config()
     # Use extracted icon if available, otherwise use generic placeholder
     if icon_path and Path(icon_path).exists():
-        # For local icons, we'll use a relative path or upload to a hosting service
-        # For now, use the icon filename in the URL template
+        # Use icon URL template from config
         icon_filename = Path(icon_path).name
-        icon_url = f"https://raw.githubusercontent.com/{{github_repo}}/{{github_ref}}/icons/{icon_filename}"
-        icon_url = icon_url.format(
-            github_repo=os.environ.get('GITHUB_REPOSITORY', 'your-username/your-repo'),
-            github_ref=os.environ.get('GITHUB_REF_NAME', 'main')
+        icon_url_template = config.get('icon_url_template') or "https://raw.githubusercontent.com/{github_repo}/{github_ref}/icons/{icon_filename}"
+        github_repo = config.get('github_repo') or os.environ.get('GITHUB_REPOSITORY', 'NexSideloading/signer-direct-installs')
+        github_ref = config.get('github_ref') or os.environ.get('GITHUB_REF_NAME', 'main')
+        icon_url = icon_url_template.format(
+            github_repo=github_repo,
+            github_ref=github_ref,
+            icon_filename=icon_filename
         )
     else:
-        icon_url = "https://via.placeholder.com/512"
+        icon_url = "https://sideloading.net/signer/fallback.png"
     
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

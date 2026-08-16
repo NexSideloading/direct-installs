@@ -2,7 +2,7 @@
   "manifest_url_template": "https://raw.githubusercontent.com/{github_repo}/{github_ref}/signed_apps/{app_name}/{cert_name}/signed.ipa",
   "github_repo": "NexSideloading/signer-direct-installs",
   "github_ref": "main",
-  "icon_url_template": "https://raw.githubusercontent.com/{github_repo}/{github_ref}/icons/{app_name}.png",
+  "icon_url_template": "https://raw.githubusercontent.com/{github_repo}/{github_ref}/icons/{icon_filename}",
   "additional_apps": {},
   "exclude_apps": [],
   "cert_filters": {
