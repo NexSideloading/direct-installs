@@ -1,4 +1,4 @@
-# Sideloading Direct Installs
+# Signer Direct Installs
 https://install.sideloading.net
 
 ## Apps
