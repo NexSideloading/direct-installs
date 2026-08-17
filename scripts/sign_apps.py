@@ -499,7 +499,6 @@ def main(force_apps=None, force_certs=None, force_all=False):
             
             # Create output directory for this app/cert combination
             output_subdir = OUTPUT_DIR / app_name / cert_name
-            output_subdir.mkdir(parents=True, exist_ok=True)
             
             signed_ipa_path = output_subdir / "signed.ipa"
             manifest_path = output_subdir / "manifest.plist"
@@ -510,23 +509,36 @@ def main(force_apps=None, force_certs=None, force_all=False):
             
             # Determine if we need to re-sign
             needs_signing = False
+            reason = ""
             
             if force_all:
                 needs_signing = True
+                reason = "force all"
             elif force_apps and app_name in force_apps:
                 needs_signing = True
+                reason = "force app"
             elif force_certs and cert_id_str in force_certs:
                 needs_signing = True
+                reason = "force certificate"
+            elif not output_subdir.exists():
+                # Certificate folder doesn't exist, need to sign
+                needs_signing = True
+                reason = "certificate folder missing"
             elif not (current_state.get('ipa_hash') == ipa_version and current_state.get('cert_version') == cert_info.get('valid_to')):
                 needs_signing = True
+                reason = "version mismatch"
             elif not (signed_ipa_path.exists() and manifest_path.exists()):
                 needs_signing = True
+                reason = "signed files missing"
+            
+            # Create output directory if we need to sign
+            if needs_signing:
+                output_subdir.mkdir(parents=True, exist_ok=True)
+                print(f"  Signing with {cert_name} ({reason})")
             
             if not needs_signing:
                 print(f"  ✓ Already signed with {cert_name}")
                 continue
-            
-            print(f"  Signing with {cert_name}...")
             
             # Sign the IPA and get metadata
             sign_success, metadata = sign_ipa(ipa_path, cert_files, signed_ipa_path, zsign_path)
