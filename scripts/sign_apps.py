@@ -180,8 +180,8 @@ def extract_metadata_from_signing_output(metadata_dir: Path, ipa_path: Path) -> 
         print(f"  Failed to extract metadata from signing output: {e}")
         return None
 
-def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Path) -> tuple[bool, Optional[Dict]]:
-    """Sign an IPA using zsign and extract metadata."""
+def prepare_and_sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Path, app_name: str, cert_name: str) -> tuple[bool, Optional[Dict]]:
+    """Prepare and sign an IPA using zsign, with optional asset injection before signing."""
     metadata = None
     
     if not cert_files['p12'] or not cert_files['mobileprovision'] or not cert_files['password']:
@@ -193,12 +193,48 @@ def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Pa
         print("  Failed to get password")
         return False, None
     
-    # Create metadata directory for this signing operation
+    # Create temporary directories for extraction and signing
     with tempfile.TemporaryDirectory() as temp_dir:
-        metadata_dir = Path(temp_dir)
+        temp_path = Path(temp_dir)
+        extracted_dir = temp_path / "extracted"
+        metadata_dir = temp_path / "metadata"
+        extracted_dir.mkdir()
+        metadata_dir.mkdir()
         
         try:
-            # Try with basic parameters first, including metadata extraction
+            # Extract IPA
+            print(f"  Extracting IPA...")
+            with zipfile.ZipFile(ipa_path, 'r') as zip_ref:
+                zip_ref.extractall(extracted_dir)
+            
+            # Find .app directory
+            payload_dir = extracted_dir / "Payload"
+            app_dirs = list(payload_dir.glob("*.app"))
+            
+            if not app_dirs:
+                print("  No .app directory found in IPA")
+                return False, None
+            
+            app_dir = app_dirs[0]
+            
+            # Inject signing assets for specific apps BEFORE signing
+            if app_name in APPS_REQUIRING_INJECTION:
+                print(f"  Injecting signing assets before signing...")
+                if not inject_signing_assets(app_dir, cert_files, cert_name):
+                    print(f"  ⚠ Failed to inject signing assets")
+            
+            # Repackage IPA with injected assets
+            modified_ipa = temp_path / "modified.ipa"
+            print(f"  Repackaging IPA...")
+            with zipfile.ZipFile(modified_ipa, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
+                for root, dirs, files in os.walk(extracted_dir):
+                    for file in files:
+                        file_path = Path(root) / file
+                        arcname = file_path.relative_to(extracted_dir)
+                        zip_ref.write(file_path, arcname)
+            
+            # Sign the modified IPA
+            print(f"  Signing IPA with zsign...")
             cmd = [
                 str(zsign_path),
                 "-k", str(cert_files['p12']),
@@ -206,7 +242,7 @@ def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Pa
                 "-p", password,
                 "-o", str(output_path),
                 "-x", str(metadata_dir),
-                str(ipa_path)
+                str(modified_ipa)
             ]
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -228,7 +264,7 @@ def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Pa
                     "-o", str(output_path),
                     "-x", str(metadata_dir),
                     "--no-compress",
-                    str(ipa_path)
+                    str(modified_ipa)
                 ]
                 
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -260,50 +296,24 @@ def sign_ipa(ipa_path: Path, cert_files: Dict, output_path: Path, zsign_path: Pa
             print("  zsign timed out")
             return False, metadata
         except Exception as e:
-            print(f"  zsign error: {e}")
+            print(f"  Signing error: {e}")
             return False, metadata
 
-def inject_signing_assets(ipa_path: Path, cert_files: Dict, cert_name: str) -> bool:
-    """Inject signing assets into IPA for apps that require it."""
+def inject_signing_assets(extracted_app_dir: Path, cert_files: Dict, cert_name: str) -> bool:
+    """Inject signing assets into extracted app directory for apps that require it."""
     if not cert_files['p12'] or not cert_files['mobileprovision'] or not cert_files['password']:
         print("  Missing certificate files for injection")
         return False
     
     try:
-        # Create temp directory for extraction
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            
-            # Extract IPA
-            with zipfile.ZipFile(ipa_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_path)
-            
-            # Find .app directory
-            payload_dir = temp_path / "Payload"
-            app_dirs = list(payload_dir.glob("*.app"))
-            
-            if not app_dirs:
-                print("  No .app directory found in IPA")
-                return False
-            
-            app_dir = app_dirs[0]
-            
-            # Create signing-assets directory
-            assets_dir = app_dir / "signing-assets" / cert_name
-            assets_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Copy certificate files
-            shutil.copy2(cert_files['p12'], assets_dir / "cert.p12")
-            shutil.copy2(cert_files['mobileprovision'], assets_dir / "cert.mobileprovision")
-            shutil.copy2(cert_files['password'], assets_dir / "cert.txt")
-            
-            # Repackage IPA
-            with zipfile.ZipFile(ipa_path, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
-                for root, dirs, files in os.walk(temp_path):
-                    for file in files:
-                        file_path = Path(root) / file
-                        arcname = file_path.relative_to(temp_path)
-                        zip_ref.write(file_path, arcname)
+        # Create signing-assets directory
+        assets_dir = extracted_app_dir / "signing-assets" / cert_name
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy certificate files
+        shutil.copy2(cert_files['p12'], assets_dir / "cert.p12")
+        shutil.copy2(cert_files['mobileprovision'], assets_dir / "cert.mobileprovision")
+        shutil.copy2(cert_files['password'], assets_dir / "cert.txt")
         
         return True
     except Exception as e:
@@ -540,8 +550,8 @@ def main(force_apps=None, force_certs=None, force_all=False):
                 print(f"  ✓ Already signed with {cert_name}")
                 continue
             
-            # Sign the IPA and get metadata
-            sign_success, metadata = sign_ipa(ipa_path, cert_files, signed_ipa_path, zsign_path)
+            # Prepare and sign the IPA with optional asset injection
+            sign_success, metadata = prepare_and_sign_ipa(ipa_path, cert_files, signed_ipa_path, zsign_path, app_name, cert_name)
             if not sign_success:
                 print(f"  ✗ Failed to sign with {cert_name}")
                 continue
@@ -553,12 +563,6 @@ def main(force_apps=None, force_certs=None, force_all=False):
             icon_path = metadata.get('icon_path') if metadata else None
             
             print(f"  Using metadata - Bundle ID: {bundle_id}, Title: {title}, Version: {version}")
-            
-            # Inject signing assets for specific apps
-            if app_name in APPS_REQUIRING_INJECTION:
-                print(f"  Injecting signing assets...")
-                if not inject_signing_assets(signed_ipa_path, cert_files, folder_name):
-                    print(f"  ⚠ Failed to inject signing assets")
             
             # Generate manifest
             # Use config or environment variables for GitHub hosting
